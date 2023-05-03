@@ -6,6 +6,16 @@ from users.models import User
 from links import utils
 
 
+class LinkConnection(graphene.relay.Connection):
+    class Meta:
+        abstract = True
+
+    total_count = graphene.Int()
+
+    def resolve_total_count(root, info, **kwargs):
+        return len(root.edges)
+
+
 class LinkNode(DjangoObjectType):
     class Meta:
         model = Link
@@ -15,6 +25,7 @@ class LinkNode(DjangoObjectType):
             "created_by__email": ["exact"],
         }
         interfaces = (graphene.relay.Node,)
+        connection_class = LinkConnection
 
 
 class RedirectNode(DjangoObjectType):

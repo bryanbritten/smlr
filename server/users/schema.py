@@ -4,22 +4,26 @@ from graphene_django.filter import DjangoFilterConnectionField
 from users.models import User
 
 
+class UserConnection(graphene.relay.Connection):
+    class Meta:
+        abstract = True
+
+    total_count = graphene.Int()
+    edge_count = graphene.Int()
+
+    def resolve_total_count(root, info, **kwargs):
+        return root.length
+
+    def resolve_edge_count(root, info, **kwargs):
+        return len(root.edges)
+
+
 class UserNode(DjangoObjectType):
     class Meta:
         model = User
         filter_fields = ["email"]
         interfaces = (graphene.relay.Node,)
-
-
-class UserInput(graphene.InputObjectType):
-    id = graphene.Int()
-    email = graphene.String()
-    last_login = graphene.DateTime()
-    is_superuser = graphene.Boolean()
-    is_staff = graphene.Boolean()
-    password = graphene.String()
-    is_active = graphene.Boolean()
-    date_joined = graphene.DateTime()
+        connection_class = UserConnection
 
 
 class Query(graphene.ObjectType):
@@ -29,18 +33,32 @@ class Query(graphene.ObjectType):
 
 class AddUser(graphene.relay.ClientIDMutation):
     class Input:
-        user_data = UserInput(required=True)
+        email = graphene.String(required=True)
+        password = graphene.String(required=True)
+        is_superuser = graphene.Boolean()
+        is_staff = graphene.Boolean()
+        is_active = graphene.Boolean()
 
     user = graphene.Field(UserNode)
 
     @classmethod
-    def mutate_and_get_payload(cls, root, info, user_data=None):
+    def mutate_and_get_payload(
+        cls,
+        root,
+        info,
+        email,
+        password,
+        is_superuser=False,
+        is_staff=False,
+        is_active=False,
+    ):
         user = User(
-            email=user_data.email,
-            is_superuser=user_data.is_superuser,
-            is_staff=user_data.is_staff,
-            password=user_data.password,
+            email=email,
+            is_superuser=is_superuser,
+            is_staff=is_staff,
+            is_active=is_active,
         )
+        user.set_password(password)
         user.save()
         return AddUser(user=user)
 
