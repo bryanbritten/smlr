@@ -1,112 +1,91 @@
 import graphene
 from graphene_django import DjangoObjectType
+from graphene_django.filter import DjangoFilterConnectionField
 from links.models import Link, Redirect
 from users.models import User
 from links import utils
 
 
-class LinkType(DjangoObjectType):
+class LinkNode(DjangoObjectType):
     class Meta:
         model = Link
-        fields = "__all__"
+        filter_fields = {
+            "original": ["exact", "icontains", "istartswith"],
+            "created_by": ["exact"],
+            "created_by__email": ["exact"],
+        }
+        interfaces = (graphene.relay.Node,)
 
 
-class RedirectType(DjangoObjectType):
+class RedirectNode(DjangoObjectType):
     class Meta:
         model = Redirect
-        fields = "__all__"
-
-
-class LinkInput(graphene.InputObjectType):
-    id = graphene.BigInt()
-    link_id = graphene.BigInt()
-    original = graphene.String()
-    shortened = graphene.String()
-    redirects = graphene.BigInt()
-    created_at = graphene.DateTime()
-    expires_at = graphene.DateTime()
-    updated_at = graphene.DateTime()
-    created_by = graphene.BigInt()
-
-
-class RedirectInput(graphene.InputObjectType):
-    id = graphene.BigInt()
-    link_id = graphene.BigInt()
-    referer = graphene.String()
-    user_agent = graphene.String()
-    ip_address = graphene.String()
-    event_time = graphene.DateTime()
+        filter_fields = ["link_id", "referer"]
+        interfaces = (graphene.relay.Node,)
 
 
 class Query(graphene.ObjectType):
-    all_links = graphene.List(LinkType)
-    link = graphene.Field(LinkType, id=graphene.BigInt())
-    all_redirects = graphene.List(RedirectType)
-    redirect = graphene.Field(RedirectType, id=graphene.BigInt())
-
-    def resolve_all_links(self, info, email):
-        user = User.objects.get(email=email)
-        return Link.objects.get(created_by=user.id)
-
-    def resolve_link(self, info, id):
-        return Link.objects.get(pk=id)
-
-    def resolve_all_redirects(self, info, link_id):
-        return Redirect.objects.get(link_id=link_id)
-
-    def resolve_redirect(self, info, id):
-        return Redirect.objects.get(pk=id)
+    link = graphene.Field(LinkNode, id=graphene.BigInt(required=True))
+    links = DjangoFilterConnectionField(LinkNode)
+    redirect = graphene.Field(RedirectNode, id=graphene.BigInt(required=True))
+    redirects = DjangoFilterConnectionField(RedirectNode)
 
 
-class AddLink(graphene.Mutation):
-    class Arguments:
-        link_data = LinkInput(required=True)
+class AddLink(graphene.relay.ClientIDMutation):
+    class Input:
+        url = graphene.String(required=True)
+        creator = graphene.String(required=True)
 
-    link = graphene.Field(LinkType)
+    link = graphene.Field(LinkNode)
 
-    @staticmethod
-    def mutate(root, info, link_data=None):
+    @classmethod
+    def mutate_and_get_payload(cls, root, info, url, creator):
         uuid = utils.generate_id()
-        user = User.objects.get(pk=link_data.user_id)
-        link_instance = Link(
-            link_id=uuid,
-            original=link_data.url,
+        user = User.objects.get(email=creator)
+        link = Link(
+            link_id=str(uuid),
+            original=url,
             shortened=f"https://smlr.io/{utils.encode(uuid)}",
             created_by=user,
         )
-        link_instance.save()
-        return AddLink(link=link_instance)
+        link.save()
+        return AddLink(link=link)
 
 
-class AddRedirect(graphene.Mutation):
-    class Arguments:
-        redirect_data = RedirectInput(required=True)
+class AddRedirect(graphene.relay.ClientIDMutation):
+    class Input:
+        link_id = graphene.BigInt()
+        referer = graphene.String()
+        user_agent = graphene.String()
+        ip_address = graphene.String()
 
-    redirect = graphene.Field(RedirectType)
+    redirect = graphene.Field(RedirectNode)
 
-    @staticmethod
-    def mutate(root, info, redirect_data=None):
-        redirect_instance = Redirect(
-            link_id=redirect_data.link_id,
-            referer=redirect_data.referer,
-            user_agent=redirect_data.user_agent,
-            ip_address=redirect_data.ip_address,
+    @classmethod
+    def mutate_and_get_payload(
+        cls, root, info, link_id, referer, user_agent, ip_address
+    ):
+        redirect = Redirect(
+            link_id=link_id,
+            referer=referer,
+            user_agent=user_agent,
+            ip_address=ip_address,
         )
-        redirect_instance.save()
-        return AddRedirect(redirect=redirect_instance)
+        redirect.save()
+        return AddRedirect(redirect=redirect)
 
 
-class DeleteLink(graphene.Mutation):
-    class Arguments:
-        id = graphene.Int()
+class DeleteLink(graphene.relay.ClientIDMutation):
+    class Input:
+        link_id = graphene.String(required=True)
 
-    link = graphene.Field(LinkType)
+    link = graphene.Field(LinkNode)
 
-    @staticmethod
-    def mutate(root, info, id):
-        link_instance = Link.objects.get(link_id=id)
-        link_instance.delete()
-        return None
+    @classmethod
+    def mutate_and_get_payload(cls, root, info, link_id):
+        link = Link.objects.get(link_id=link_id)
+        link.delete()
+        return DeleteLink(link=link)
 
 
 class Mutation(graphene.ObjectType):

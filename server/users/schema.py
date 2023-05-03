@@ -1,12 +1,14 @@
 import graphene
 from graphene_django import DjangoObjectType
+from graphene_django.filter import DjangoFilterConnectionField
 from users.models import User
 
 
-class UserType(DjangoObjectType):
+class UserNode(DjangoObjectType):
     class Meta:
         model = User
-        fields = "__all__"
+        filter_fields = ["email"]
+        interfaces = (graphene.relay.Node,)
 
 
 class UserInput(graphene.InputObjectType):
@@ -21,40 +23,40 @@ class UserInput(graphene.InputObjectType):
 
 
 class Query(graphene.ObjectType):
-    user = graphene.Field(UserType, email=graphene.String())
-
-    def resolve_user(self, info, email):
-        return User.objects.get(email=email)
+    user = graphene.relay.Node.Field(UserNode)
+    users = DjangoFilterConnectionField(UserNode)
 
 
-class AddUser(graphene.Mutation):
-    class Arguments:
+class AddUser(graphene.relay.ClientIDMutation):
+    class Input:
         user_data = UserInput(required=True)
 
-    user = graphene.Field(UserType)
+    user = graphene.Field(UserNode)
 
-    @staticmethod
-    def mutate(root, info, user_data=None):
-        user_instance = User(
+    @classmethod
+    def mutate_and_get_payload(cls, root, info, user_data=None):
+        user = User(
             email=user_data.email,
             is_superuser=user_data.is_superuser,
             is_staff=user_data.is_staff,
+            password=user_data.password,
         )
-        user_instance.save()
-        return AddUser(user=user_instance)
+        user.save()
+        return AddUser(user=user)
 
 
-class DeleteUser(graphene.Mutation):
-    class Arguments:
+class DeleteUser(graphene.relay.ClientIDMutation):
+    class Input:
         email = graphene.String()
 
-    user = graphene.Field(UserType)
+    user = graphene.Field(UserNode)
 
-    @staticmethod
-    def mutate(root, info, email):
-        user_instance = User.objects.get(email=email)
-        user_instance.delete()
-        return None
+    @classmethod
+    def mutate_and_get_payload(cls, root, info, email):
+        print(email)
+        user = User.objects.get(email=email)
+        user.delete()
+        return DeleteUser(user=user)
 
 
 class Mutation(graphene.ObjectType):
